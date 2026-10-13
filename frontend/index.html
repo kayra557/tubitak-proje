@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KuraklıkGözü – Uydu ile Tarımsal Kuraklık İzleme</title>
+  <meta name="description" content="Sentinel-2 uydu verisi ve NDVI ile Türkiye tarım havzalarında kuraklık izleme ve çiftçi uyarı sistemi.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛰️</text></svg>">
+  <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">🛰️</span>
+    <div>
+      <h1>KuraklıkGözü</h1>
+      <p>Uydu verisiyle Türkiye'nin tarım alanlarında kuraklık izleme</p>
+    </div>
+  </div>
+  <nav>
+    <a href="#harita">Harita</a>
+    <a href="#grafikler">Grafikler</a>
+    <a href="#uyari">Çiftçi Uyarısı</a>
+    <a href="#nasil">Nasıl Çalışıyor?</a>
+  </nav>
+  <span id="mode-badge" class="badge">Bağlanıyor…</span>
+</header>
+
+<div id="demo-banner" class="banner" hidden>
+  <strong>Demo modu:</strong> Google Earth Engine hesabı bağlı olmadığı için harita, gerçek uydu ölçümü yerine
+  Sentinel-2 davranışını taklit eden <em>yapay veri</em> gösteriyor. Gerçek veri için README'deki GEE kurulumunu yapın.
+</div>
+
+<main>
+  <!-- ============ KONTROLLER + HARİTA ============ -->
+  <section id="harita" class="dashboard">
+    <aside class="panel controls">
+      <label>Bölge
+        <select id="region"></select>
+      </label>
+      <div class="row">
+        <label>Yıl <select id="year"></select></label>
+        <label>Ay <select id="month"></select></label>
+      </div>
+      <fieldset>
+        <legend>Harita katmanı</legend>
+        <label class="radio"><input type="radio" name="layer" value="vci" checked> Kuraklık durumu (VCI)</label>
+        <label class="radio"><input type="radio" name="layer" value="ndvi"> Bitki örtüsü (NDVI)</label>
+        <label class="radio"><input type="radio" name="layer" value="change"> Geçen yıla göre değişim</label>
+        <label class="radio" id="raster-opt" hidden><input type="checkbox" id="raster"> 10 m uydu rasterı (GEE)</label>
+      </fieldset>
+      <div class="btns">
+        <button id="play" class="secondary" title="Seçili ay için yılları sırayla göster">▶ Yılları oynat</button>
+        <a id="export" class="secondary button" download>⬇ QGIS için indir</a>
+      </div>
+
+      <div class="stats" id="stats">
+        <div class="stat big"><span id="s-drought">–</span><small>kurak tarım alanı</small></div>
+        <div class="stat"><span id="s-vci">–</span><small>ort. VCI</small></div>
+        <div class="stat"><span id="s-ndvi">–</span><small>ort. NDVI</small></div>
+      </div>
+      <div class="bars" id="class-bars"></div>
+      <p class="hint">Haritada bir noktaya tıklayın → o tarlanın 2017'den bugüne uydu geçmişi ve önerileri.</p>
+    </aside>
+
+    <div class="map-wrap">
+      <div id="map"></div>
+      <div id="map-loading" class="map-loading" hidden>Uydu verisi işleniyor…</div>
+      <div class="legend" id="legend"></div>
+    </div>
+  </section>
+
+  <!-- ============ TARLA ANALİZİ ============ -->
+  <section id="tarla" class="panel" hidden>
+    <div class="section-head">
+      <h2>📍 Tarla analizi <small id="p-coord"></small></h2>
+      <button id="p-subscribe" class="primary">Bu tarla için uyarı al</button>
+    </div>
+    <div class="point-grid">
+      <div>
+        <div class="status-card" id="p-status"></div>
+        <ul class="advice" id="p-advice"></ul>
+      </div>
+      <div class="chart-box"><canvas id="p-chart"></canvas></div>
+    </div>
+  </section>
+
+  <!-- ============ GRAFİKLER ============ -->
+  <section id="grafikler" class="charts">
+    <div class="panel">
+      <h2>Aylık bitki örtüsü (NDVI) – <span class="region-name"></span></h2>
+      <p class="sub">Bölgedeki tarım alanlarının ortalaması. Her tepe bir büyüme mevsimi.</p>
+      <div class="chart-box tall"><canvas id="c-monthly"></canvas></div>
+    </div>
+    <div class="panel">
+      <h2>Yıldan yıla büyüme mevsimi</h2>
+      <p class="sub" id="trend-text">–</p>
+      <div class="chart-box"><canvas id="c-yearly"></canvas></div>
+    </div>
+    <div class="panel">
+      <h2>Kurak tarım alanı oranı (<span id="dh-month"></span>)</h2>
+      <p class="sub">VCI &lt; 35 olan tarım alanlarının payı.</p>
+      <div class="chart-box"><canvas id="c-drought"></canvas></div>
+      <button id="dh-load" class="secondary" hidden>Hesapla</button>
+    </div>
+    <div class="panel">
+      <h2>Bu yıl vs. ortalama yıl</h2>
+      <p class="sub" id="pheno-text">–</p>
+      <div class="chart-box"><canvas id="c-clim"></canvas></div>
+    </div>
+  </section>
+
+  <!-- ============ UYARI ============ -->
+  <section id="uyari" class="alerts">
+    <div class="panel">
+      <h2>🔔 Çiftçi uyarı aboneliği</h2>
+      <p class="sub">Tarlanızın konumunu haritadan seçin. Uydu verisi her ay kontrol edilir; tarlanızda kuraklık
+        eşiği aşılırsa size e-posta ile (ve bu sayfada) uyarı gönderilir.</p>
+      <form id="sub-form">
+        <label>Ad Soyad <input name="name" required maxlength="80"></label>
+        <label>E-posta <input name="email" type="email" maxlength="120" placeholder="isteğe bağlı"></label>
+        <label>Tarla adı <input name="field_name" maxlength="80" placeholder="ör. Çumra – Ova tarlası"></label>
+        <div class="row">
+          <label>Enlem <input name="lat" required inputmode="decimal"></label>
+          <label>Boylam <input name="lon" required inputmode="decimal"></label>
+        </div>
+        <label>Uyarı eşiği (VCI)
+          <select name="threshold">
+            <option value="20">20 – sadece şiddetli kuraklık</option>
+            <option value="35" selected>35 – orta ve üzeri kuraklık</option>
+            <option value="50">50 – hafif stres dahil</option>
+          </select>
+        </label>
+        <p class="hint">Konumu doldurmak için haritaya tıklayıp "Bu tarla için uyarı al"a basın.</p>
+        <button class="primary" type="submit">Abone ol</button>
+        <p id="sub-msg" class="msg" role="status"></p>
+      </form>
+    </div>
+    <div class="panel">
+      <div class="section-head">
+        <h2>Uyarılar</h2>
+        <button id="check-alerts" class="secondary">Uyarıları şimdi kontrol et</button>
+      </div>
+      <ul id="alert-list" class="alert-list"></ul>
+      <h3>Abone tarlalar</h3>
+      <ul id="sub-list" class="sub-list"></ul>
+    </div>
+  </section>
+
+  <!-- ============ NASIL ÇALIŞIYOR ============ -->
+  <section id="nasil" class="panel how">
+    <h2>Nasıl çalışıyor?</h2>
+    <ol class="steps">
+      <li><span>1</span><h3>Uydu fotoğraf çeker</h3>
+        <p>Avrupa Uzay Ajansı'nın <b>Sentinel-2</b> uyduları Türkiye'yi her ~5 günde bir 10 metre çözünürlükte
+          görüntüler. Veri ücretsiz ve açıktır.</p></li>
+      <li><span>2</span><h3>Python ile işlenir</h3>
+        <p><b>Google Earth Engine</b> üzerinde bulutlu pikseller atılır, her piksel için
+          <b>NDVI = (NIR − Kırmızı) / (NIR + Kırmızı)</b> hesaplanır. Sağlıklı bitki yakın kızılötesini güçlü yansıtır,
+          kuru toprak yansıtmaz.</p></li>
+      <li><span>3</span><h3>Otomatik hesaplanır</h3>
+        <p>Her ayın NDVI'si, aynı ayın 2017'den beri en kötü ve en iyi değeriyle kıyaslanır:
+          <b>VCI</b> (Bitkisel Durum İndeksi). VCI &lt; 35 → kuraklık. Sadece ESA WorldCover'a göre
+          <b>tarım alanı</b> olan pikseller sayılır.</p></li>
+      <li><span>4</span><h3>Haritada gösterilir ve uyarılır</h3>
+        <p><b style="color:#1a9850">Yeşil</b> = sağlıklı tarım, <b style="color:#b2182b">kırmızı</b> = kurak alan.
+          Abone olan çiftçiye tarlası eşik altına düşünce e-posta gider.</p></li>
+    </ol>
+    <div class="usecases">
+      <div>🌾 <b>Çiftçi / devlet</b> "bu bölge kuruyor" uyarısını erken alır.</div>
+      <div>📈 Kuraklığın <b>yıldan yıla</b> nasıl arttığı bilimsel olarak gösterilir.</div>
+      <div>🏠 Sahaya gitmeden <b>binlerce dönüm</b> arazi analiz edilir.</div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>Veri: Copernicus Sentinel-2 (ESA), ESA WorldCover 2021, Google Earth Engine · Altlık harita: Esri, OpenStreetMap.
+    TÜBİTAK 2204 Lise Öğrencileri Araştırma Projesi – Yazılım / İklim Değişikliği.</p>
+  <p class="hint">Öneriler bilgilendirme amaçlıdır; ziraat mühendisi veya İl Tarım Müdürlüğü tavsiyesinin yerini tutmaz.</p>
+</footer>
+
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script src="/static/vendor/chart.umd.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
