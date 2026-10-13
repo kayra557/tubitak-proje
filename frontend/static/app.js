@@ -57,7 +57,16 @@ function initMap() {
   const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
     { maxZoom: 18, attribution: "© OpenStreetMap" });
   sat.addTo(map);
-  L.control.layers({ "Uydu görüntüsü": sat, "Sokak haritası": osm }, {}, { position: "topright" }).addTo(map);
+  // Şehir/ilçe adları ve il sınırları: kuraklık karelerinin üstünde dursun, tıklamayı engellemesin
+  map.createPane("labels");
+  map.getPane("labels").style.zIndex = 650;
+  map.getPane("labels").style.pointerEvents = "none";
+  const labels = L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+    { pane: "labels", maxZoom: 18, attribution: "Yer adları © Esri" });
+  labels.addTo(map);
+  L.control.layers({ "Uydu görüntüsü": sat, "Sokak haritası": osm },
+    { "Şehir ve il adları": labels }, { position: "topright" }).addTo(map);
   L.control.scale({ imperial: false }).addTo(map);
   map.on("click", (e) => loadPoint(e.latlng.lat, e.latlng.lng));
 }
