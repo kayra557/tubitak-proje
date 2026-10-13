@@ -10,7 +10,7 @@ import os
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
-from . import alerts, service
+from . import alerts, places, service
 from .config import FIRST_YEAR, REGIONS, ROOT
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -69,6 +69,11 @@ def api_status():
 @app.get("/api/regions")
 def api_regions():
     return jsonify(service.regions())
+
+
+@app.get("/api/places")
+def api_places():
+    return jsonify(places.as_json())
 
 
 @app.get("/api/map")

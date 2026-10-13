@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 
-from . import analysis
+from . import analysis, places
 from .config import DATA_MODE, REGIONS
 from .demo_source import DemoSource
 
@@ -122,4 +122,5 @@ def point_report(lat: float, lon: float) -> dict:
                    "class": cls["key"], "class_label": cls["label"], "color": cls["color"],
                    "ndvi_change": round(last["ndvi"] - prev, 3) if prev is not None else None}
         res["advice"] = analysis.farmer_advice(v, res["trend"], res["phenology"], m)
-    return {"lat": lat, "lon": lon, "region": region_id, "current": current, **res}
+    return {"lat": lat, "lon": lon, "region": region_id, "nearest_place": places.nearest(lat, lon),
+            "current": current, **res}

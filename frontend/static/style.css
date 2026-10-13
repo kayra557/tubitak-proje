@@ -117,6 +117,15 @@ button:disabled { opacity: .55; cursor: progress; }
 .legend .ramp { height: 10px; border-radius: 3px; margin: .2rem 0; }
 .legend .ends { display: flex; justify-content: space-between; }
 .leaflet-popup-content { font-size: .85rem; }
+.place-label { pointer-events: none; }
+.place-label span {
+  display: inline-block; transform: translate(-50%, -50%); white-space: nowrap;
+  color: #fff; font-weight: 700; text-shadow: 0 0 3px #000, 0 0 6px #000, 0 1px 2px #000;
+}
+.place-label.il span { font-size: 15px; letter-spacing: .02em; }
+.place-label.ilce span { font-size: 12px; font-weight: 600; }
+.place-label.ilce { display: none; }
+.show-ilce .place-label.ilce { display: block; }
 
 /* ---- Tarla ---- */
 .point-grid { display: grid; grid-template-columns: 340px 1fr; gap: 1rem; margin-top: .8rem; }

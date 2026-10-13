@@ -48,7 +48,7 @@ function cellColor(p) {
 }
 
 // ---------------------------------------------------------------- harita
-let map, gridLayer, outlineLayer, rasterLayer, pointMarker;
+let map, gridLayer, outlineLayer, rasterLayer, pointMarker, placeLayer;
 
 function initMap() {
   map = L.map("map", { zoomControl: true, preferCanvas: true }).setView([38.5, 31], 7);
@@ -64,11 +64,29 @@ function initMap() {
   const labels = L.tileLayer(
     "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
     { pane: "labels", maxZoom: 18, attribution: "Yer adları © Esri" });
-  labels.addTo(map);
+
+  placeLayer = L.layerGroup().addTo(map);
   L.control.layers({ "Uydu görüntüsü": sat, "Sokak haritası": osm },
-    { "Şehir ve il adları": labels }, { position: "topright" }).addTo(map);
+    { "İl ve ilçe adları (Türkçe)": placeLayer, "Esri yer adları ve sınırlar": labels },
+    { position: "topright" }).addTo(map);
+  map.on("zoomend", updatePlaceVisibility);
   L.control.scale({ imperial: false }).addTo(map);
   map.on("click", (e) => loadPoint(e.latlng.lat, e.latlng.lng));
+}
+
+// İl adları her zaman, ilçe adları yakınlaşınca (zoom ≥ 9) görünür
+function drawPlaces(list) {
+  list.forEach((p) => {
+    L.marker([p.lat, p.lon], {
+      interactive: false, keyboard: false, pane: "labels",
+      icon: L.divIcon({ className: `place-label ${p.type}`, html: `<span>${esc(p.name)}</span>`, iconSize: null }),
+    }).addTo(placeLayer);
+  });
+  updatePlaceVisibility();
+}
+
+function updatePlaceVisibility() {
+  map.getContainer().classList.toggle("show-ilce", map.getZoom() >= 9);
 }
 
 function drawGrid() {
@@ -239,6 +257,7 @@ async function loadPoint(lat, lon) {
   const sec = $("tarla");
   sec.hidden = false;
   $("p-coord").textContent = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+  $("p-place").textContent = "";
   $("p-status").innerHTML = "Uydu geçmişi getiriliyor…";
   $("p-status").style.background = "#7a8a7f";
   $("p-advice").innerHTML = "";
@@ -249,6 +268,12 @@ async function loadPoint(lat, lon) {
   } catch (e) {
     $("p-status").textContent = e.message;
     return;
+  }
+  const np = r.nearest_place;
+  if (np) {
+    $("p-place").textContent = np.type === "il"
+      ? `${np.name} il merkezine ${np.distance_km} km`
+      : `${np.name} (${np.province}) ilçesine ${np.distance_km} km`;
   }
   const c = r.current;
   if (c) {
@@ -418,6 +443,7 @@ async function init() {
   bindControls();
   bindAlerts();
   [state.status, state.regions] = await Promise.all([api("/api/status"), api("/api/regions")]);
+  api("/api/places").then(drawPlaces).catch(() => {});
   const badge = $("mode-badge");
   badge.textContent = state.status.label;
   badge.className = "badge " + state.status.mode;
