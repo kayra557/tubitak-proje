@@ -16,9 +16,10 @@ import hashlib
 import math
 from functools import lru_cache
 
-from . import analysis
+from . import analysis, store
 from .config import REGIONS
 from .sources_common import latest_month, month_range
+from .store_source import StoreSource
 
 # Yıla özgü iklim etkisi (pozitif = yağışlı, negatif = kurak)
 YEAR_EFFECT = {2017: 0.00, 2018: -0.03, 2019: 0.03, 2020: -0.01, 2021: -0.10,
@@ -71,57 +72,26 @@ def ndvi_at(lat: float, lon: float, year: int, month: int, peak: int | None = No
     return round(max(-0.1, min(0.92, val)), 4)
 
 
-class DemoSource:
+def demo_store(region_id: str, latest: tuple[int, int]) -> dict:
+    """Bir bölge için tüm ayları içeren yapay depo (gerçek depoyla aynı yapıda)."""
+    reg = REGIONS[region_id]
+    cells = [{**c, "crop": 1.0 if _is_cropland(c["lat"], c["lon"]) else 0.0}
+             for c in analysis.grid_cells(reg["polygon"])]
+    st = store.new_store(region_id, "demo", cells)
+    for y, m in month_range(latest):
+        store.set_month(st, f"{y}-{m:02d}", [
+            ndvi_at(c["lat"], c["lon"], y, m, reg["peak_month"]) if c["crop"] else None for c in cells])
+    return st
+
+
+@lru_cache(maxsize=2)
+def _demo_stores(latest: tuple[int, int]) -> dict:
+    return {rid: demo_store(rid, latest) for rid in REGIONS}
+
+
+class DemoSource(StoreSource):
     mode = "demo"
     label = "Demo (yapay veri)"
 
-    def latest(self):
-        return latest_month()
-
-    def region_map(self, region_id: str, year: int, month: int) -> dict:
-        return _region_map_cached(region_id, year, month)
-
-    def region_monthly(self, region_id: str) -> list[dict]:
-        return _region_monthly_cached(region_id, self.latest())
-
-    def point_monthly(self, lat: float, lon: float) -> list[dict]:
-        peak = _region_peak(lat, lon)
-        out = []
-        for y, m in month_range(self.latest()):
-            out.append({"t": f"{y}-{m:02d}", "ndvi": ndvi_at(lat, lon, y, m, peak)})
-        return out
-
-
-@lru_cache(maxsize=64)
-def _region_map_cached(region_id: str, year: int, month: int) -> dict:
-    reg = REGIONS[region_id]
-    latest_y, _ = latest_month()
-    features = []
-    for cell in analysis.grid_cells(reg["polygon"]):
-        lat, lon = cell["lat"], cell["lon"]
-        if not _is_cropland(lat, lon):
-            continue
-        cur = ndvi_at(lat, lon, year, month, reg["peak_month"])
-        hist = [ndvi_at(lat, lon, y, month, reg["peak_month"]) for y in range(2017, latest_y + 1)
-                if (y, month) <= latest_month()]
-        v = analysis.vci(cur, hist)
-        prev = ndvi_at(lat, lon, year - 1, month, reg["peak_month"]) if year > 2017 else None
-        cls = analysis.classify_vci(v)
-        features.append(analysis.cell_feature(cell, {
-            "ndvi": round(cur, 3),
-            "vci": round(v, 1) if v is not None else None,
-            "ndvi_change": round(cur - prev, 3) if prev is not None else None,
-            "class": cls["key"], "class_label": cls["label"], "color": cls["color"],
-        }))
-    return {"type": "FeatureCollection", "features": features}
-
-
-@lru_cache(maxsize=16)
-def _region_monthly_cached(region_id: str, latest: tuple[int, int]) -> list[dict]:
-    reg = REGIONS[region_id]
-    cells = [c for c in analysis.grid_cells(reg["polygon"], step=0.2) if _is_cropland(c["lat"], c["lon"])]
-    out = []
-    for y, m in month_range(latest):
-        vals = [ndvi_at(c["lat"], c["lon"], y, m, reg["peak_month"]) for c in cells]
-        out.append({"t": f"{y}-{m:02d}", "ndvi": round(sum(vals) / len(vals), 4)})
-    return out
+    def __init__(self):
+        super().__init__(_demo_stores(latest_month()))

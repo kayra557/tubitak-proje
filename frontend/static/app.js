@@ -19,11 +19,48 @@ const state = { status: null, regions: [], region: "konya", year: null, month: n
 const charts = {};
 
 // ---------------------------------------------------------------- yardımcılar
+// Statik yayında (GitHub Pages) veriler önceden üretilmiş JSON dosyalarından okunur,
+// yerel Flask sunucusunda ise API'den. Yollar göreli: site bir alt klasörde de çalışır.
+const STATIC = !!window.KG_STATIC;
+const pad2 = (n) => String(n).padStart(2, "0");
+const URLS = STATIC ? {
+  status: () => "api/status.json",
+  regions: () => "api/regions.json",
+  places: () => "api/places.json",
+  map: (r, y, m) => `api/map/${r}/${y}-${pad2(m)}.json`,
+  exportMap: (r, y, m) => `api/map/${r}/${y}-${pad2(m)}.json`,
+  timeseries: (r) => `api/timeseries/${r}.json`,
+  droughtHistory: (r, m) => `api/drought-history/${r}/${m}.json`,
+  cell: (r, id) => `api/cell/${r}/${id}.json`,
+  alerts: () => "api/alerts.json",
+} : {
+  status: () => "api/status",
+  regions: () => "api/regions",
+  places: () => "api/places",
+  map: (r, y, m) => `api/map?region=${r}&year=${y}&month=${m}`,
+  exportMap: (r, y, m) => `api/export.geojson?region=${r}&year=${y}&month=${m}`,
+  timeseries: (r) => `api/timeseries?region=${r}`,
+  droughtHistory: (r, m) => `api/drought-history?region=${r}&month=${m}`,
+  point: (lat, lon) => `api/point?lat=${lat}&lon=${lon}`,
+  alerts: () => "api/alerts",
+  subscriptions: () => "api/subscriptions",
+};
+
 async function api(path, opts) {
   const res = await fetch(path, opts);
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `Sunucu hatası (${res.status})`);
+  if (!res.ok) throw new Error(body.error || `Veri alınamadı (${res.status})`);
   return body;
+}
+
+// Statik modda tıklanan noktayı içeren ızgara hücresini bulur
+function findCell(lat, lon) {
+  for (const f of (state.mapData && state.mapData.features) || []) {
+    const ring = f.geometry.coordinates[0];
+    const [x0, y0] = ring[0], [x1, y1] = ring[2];
+    if (lon >= x0 && lon < x1 && lat >= y0 && lat < y1) return f.properties;
+  }
+  return null;
 }
 
 function esc(s) {
@@ -75,7 +112,18 @@ function initMap() {
 }
 
 // İl adları her zaman, ilçe adları yakınlaşınca (zoom ≥ 9) görünür
+function nearestPlace(lat, lon) {
+  let best = null;
+  for (const p of state.places || []) {
+    const dx = (p.lon - lon) * 111.32 * Math.cos(lat * Math.PI / 180), dy = (p.lat - lat) * 110.57;
+    const d = Math.hypot(dx, dy);
+    if (!best || d < best.distance_km) best = { ...p, distance_km: Math.round(d * 10) / 10 };
+  }
+  return best;
+}
+
 function drawPlaces(list) {
+  state.places = list;
   list.forEach((p) => {
     L.marker([p.lat, p.lon], {
       interactive: false, keyboard: false, pane: "labels",
@@ -109,10 +157,19 @@ function drawGrid() {
 
 function drawRaster() {
   if (rasterLayer) { rasterLayer.remove(); rasterLayer = null; }
-  const tiles = state.mapData && state.mapData.tiles;
-  if (!tiles || !$("raster").checked) return;
-  const url = state.layer === "ndvi" ? tiles.ndvi : tiles.vci;
-  rasterLayer = L.tileLayer(url, { opacity: 0.85, attribution: "Sentinel-2 / Google Earth Engine" }).addTo(map);
+  if (!$("raster").checked) return;
+  const attribution = "Sentinel-2 / Google Earth Engine";
+  if (STATIC) {
+    // Statik yayında sadece son ayın görüntüsü vardır
+    const ri = (state.status.raster || {})[state.region];
+    if (!ri || ri.period !== `${state.year}-${pad2(state.month)}`) return;
+    rasterLayer = L.imageOverlay(state.layer === "ndvi" ? ri.ndvi : ri.vci, ri.bounds,
+      { opacity: 0.85, attribution }).addTo(map);
+  } else {
+    const tiles = state.mapData && state.mapData.tiles;
+    if (!tiles) return;
+    rasterLayer = L.tileLayer(state.layer === "ndvi" ? tiles.ndvi : tiles.vci, { opacity: 0.85, attribution }).addTo(map);
+  }
   if (gridLayer) gridLayer.bringToFront();
 }
 
@@ -153,11 +210,12 @@ function renderStats() {
 async function loadMap() {
   $("map-loading").hidden = false;
   try {
-    state.mapData = await api(`/api/map?region=${state.region}&year=${state.year}&month=${state.month}`);
+    state.mapData = await api(URLS.map(state.region, state.year, state.month));
     drawGrid();
     drawRaster();
     renderStats();
-    $("export").href = `/api/export.geojson?region=${state.region}&year=${state.year}&month=${state.month}`;
+    $("export").href = URLS.exportMap(state.region, state.year, state.month);
+    $("export").setAttribute("download", `${state.region}_${state.year}_${pad2(state.month)}_kuraklik.geojson`);
   } catch (e) {
     alert("Harita yüklenemedi: " + e.message);
   } finally {
@@ -180,7 +238,7 @@ function setChart(id, config) {
 
 async function loadTimeseries() {
   document.querySelectorAll(".region-name").forEach((el) => (el.textContent = regionObj().name));
-  const ts = await api(`/api/timeseries?region=${state.region}`);
+  const ts = await api(URLS.timeseries(state.region));
 
   setChart("c-monthly", {
     type: "line",
@@ -235,7 +293,7 @@ async function loadDroughtHistory() {
   const box = $("c-drought").parentElement;
   box.style.opacity = 0.5;
   try {
-    const rows = await api(`/api/drought-history?region=${state.region}&month=${state.month}`);
+    const rows = await api(URLS.droughtHistory(state.region, state.month));
     setChart("c-drought", {
       type: "bar",
       data: { labels: rows.map((r) => r.year), datasets: [{ label: "Kurak tarım alanı (%)",
@@ -264,12 +322,20 @@ async function loadPoint(lat, lon) {
   sec.scrollIntoView({ behavior: "smooth", block: "nearest" });
   let r;
   try {
-    r = await api(`/api/point?lat=${lat}&lon=${lon}`);
+    if (STATIC) {
+      const cell = findCell(lat, lon);
+      if (!cell) throw new Error("Bu nokta, seçili bölgedeki izlenen tarım alanlarının dışında. Haritadaki renkli karelerden birine tıklayın.");
+      r = await api(URLS.cell(state.region, cell.id));
+    } else {
+      r = await api(URLS.point(lat, lon));
+    }
   } catch (e) {
     $("p-status").textContent = e.message;
+    if (charts["p-chart"]) { charts["p-chart"].destroy(); delete charts["p-chart"]; }
     return;
   }
-  const np = r.nearest_place;
+  // Statik raporlar kare merkezine göre üretilir; yakın yerleşimi tıklanan noktaya göre yeniden bul
+  const np = (STATIC && nearestPlace(lat, lon)) || r.nearest_place;
   if (np) {
     $("p-place").textContent = np.type === "il"
       ? `${np.name} il merkezine ${np.distance_km} km`
@@ -290,7 +356,7 @@ async function loadPoint(lat, lon) {
   setChart("p-chart", {
     type: "line",
     data: { labels: r.monthly.map((x) => x.t), datasets: [
-      { label: "Bu tarlanın NDVI'si", data: r.monthly.map((x) => x.ndvi), borderColor: "#1a9850",
+      { label: cellScale() ? "Bu karenin NDVI'si" : "Bu tarlanın NDVI'si", data: r.monthly.map((x) => x.ndvi), borderColor: "#1a9850",
         pointRadius: 0, tension: 0.3, spanGaps: true },
       { label: "Aynı ayın ortalaması", data: r.monthly.map((x) => r.climatology[Number(x.t.slice(5)) - 1]),
         borderColor: "#7a8a7f", borderDash: [4, 4], pointRadius: 0 },
@@ -301,8 +367,11 @@ async function loadPoint(lat, lon) {
 }
 
 // ---------------------------------------------------------------- uyarılar
+const cellScale = () => state.status && state.status.point_scale === "cell";
+
 async function loadSubscriptions() {
-  const subs = await api("/api/subscriptions");
+  if (STATIC) return;
+  const subs = await api(URLS.subscriptions());
   $("sub-list").innerHTML = subs.length ? subs.map((s) => `<li>
       <div><b>${esc(s.field_name || "Tarla")}</b> – ${esc(s.name)}
         <div class="meta">${s.lat.toFixed(4)}, ${s.lon.toFixed(4)} · eşik VCI ${s.threshold}${s.email ? " · " + esc(s.email) : ""}</div></div>
@@ -312,14 +381,32 @@ async function loadSubscriptions() {
 }
 
 async function loadAlerts() {
-  const list = await api("/api/alerts");
-  $("alert-list").innerHTML = list.length ? list.map((a) => `<li>${esc(a.message)}
-      <div class="meta">${esc(a.created_at.replace("T", " "))} · iletim: ${esc(a.delivered)}</div></li>`).join("")
-    : `<li class="empty">Henüz uyarı yok. "Uyarıları şimdi kontrol et" ile abone tarlaları tarayın.</li>`;
+  const list = await api(URLS.alerts());
+  // Statik yayında kişisel bilgi içermeyen özet gösterilir
+  const text = (a) => a.message || `${a.place}: ${a.class_label} (VCI ${fmt(a.vci, 0)}, ${a.period})`;
+  const when = (a) => (a.created_at || a.date || "").replace("T", " ");
+  $("alert-list").innerHTML = list.length ? list.map((a) => `<li>${esc(text(a))}
+      <div class="meta">${esc(when(a))} · iletim: ${esc(a.delivered)}</div></li>`).join("")
+    : `<li class="empty">${STATIC ? "Henüz uyarı gönderilmedi. Abone tarlalar her ayın başında uydu verisiyle kontrol edilir."
+      : 'Henüz uyarı yok. "Uyarıları şimdi kontrol et" ile abone tarlaları tarayın.'}</li>`;
+}
+
+// Google Formu bağlantısındaki ENLEM/BOYLAM yer tutucularını tıklanan noktayla doldurur
+function formUrl(lat, lon) {
+  const u = state.status.subscribe_form_url;
+  if (!u) return null;
+  return u.replace("ENLEM", lat === undefined ? "" : lat.toFixed(5))
+    .replace("BOYLAM", lon === undefined ? "" : lon.toFixed(5));
 }
 
 function bindAlerts() {
   $("p-subscribe").addEventListener("click", () => {
+    if (STATIC) {
+      const u = formUrl(state.point.lat, state.point.lon);
+      if (u) window.open(u, "_blank", "noopener");
+      else alert("Abonelik formu henüz ayarlanmadı.");
+      return;
+    }
     const f = $("sub-form");
     f.lat.value = state.point.lat.toFixed(5);
     f.lon.value = state.point.lon.toFixed(5);
@@ -331,7 +418,7 @@ function bindAlerts() {
     const f = e.target, msg = $("sub-msg");
     const body = Object.fromEntries(new FormData(f));
     try {
-      await api("/api/subscriptions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      await api("api/subscriptions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       msg.className = "msg ok";
       msg.textContent = "Abonelik oluşturuldu. Tarlanız her ay uydu verisiyle kontrol edilecek.";
       f.reset();
@@ -344,7 +431,7 @@ function bindAlerts() {
   $("sub-list").addEventListener("click", async (e) => {
     const del = e.target.dataset.del, go = e.target.dataset.go;
     if (del && confirm("Abonelik silinsin mi?")) {
-      await api(`/api/subscriptions/${del}`, { method: "DELETE" });
+      await api(`api/subscriptions/${del}`, { method: "DELETE" });
       loadSubscriptions(); loadAlerts();
     } else if (go) {
       const [lat, lon] = go.split(",").map(Number);
@@ -357,7 +444,7 @@ function bindAlerts() {
     const btn = e.target;
     btn.disabled = true; btn.textContent = "Uydu verisi kontrol ediliyor…";
     try {
-      const r = await api("/api/alerts/check", { method: "POST" });
+      const r = await api("api/alerts/check", { method: "POST" });
       btn.textContent = `${r.checked} tarla tarandı, ${r.new_alerts.length} yeni uyarı`;
       loadAlerts();
     } catch (err) {
@@ -407,7 +494,7 @@ function bindControls() {
     drawOutline();
     await loadMap();
     loadTimeseries();
-    if (state.status.mode === "demo") loadDroughtHistory(); else resetDroughtHistory();
+    if (!state.status.live) loadDroughtHistory(); else resetDroughtHistory();
   });
   $("year").addEventListener("change", (e) => {
     state.year = Number(e.target.value);
@@ -419,7 +506,7 @@ function bindControls() {
   $("month").addEventListener("change", (e) => {
     state.month = Number(e.target.value);
     loadMap();
-    if (state.status.mode === "demo") loadDroughtHistory(); else resetDroughtHistory();
+    if (!state.status.live) loadDroughtHistory(); else resetDroughtHistory();
   });
   document.querySelectorAll("input[name=layer]").forEach((el) => el.addEventListener("change", (e) => {
     state.layer = e.target.value;
@@ -442,13 +529,36 @@ async function init() {
   initMap();
   bindControls();
   bindAlerts();
-  [state.status, state.regions] = await Promise.all([api("/api/status"), api("/api/regions")]);
-  api("/api/places").then(drawPlaces).catch(() => {});
+  [state.status, state.regions] = await Promise.all([api(URLS.status()), api(URLS.regions())]);
+  api(URLS.places()).then(drawPlaces).catch(() => {});
+  const st = state.status;
   const badge = $("mode-badge");
-  badge.textContent = state.status.label;
-  badge.className = "badge " + state.status.mode;
-  $("demo-banner").hidden = state.status.mode !== "demo";
-  $("raster-opt").hidden = state.status.mode !== "gee";
+  badge.textContent = st.label;
+  badge.className = "badge " + st.mode;
+  $("demo-banner").hidden = st.mode !== "demo";
+  const cov = st.coverage;
+  if (st.mode === "gee" && cov && !cov.complete) {
+    $("coverage-banner").hidden = false;
+    $("coverage-banner").textContent = `Geçmiş uydu verisi yükleniyor: ${cov.months_have}/${cov.months_expected} ay hazır. ` +
+      "Tamamlanana kadar kuraklık (VCI) karşılaştırmaları eksik yıllara dayanır.";
+  }
+  $("raster-opt").hidden = !(st.live || Object.keys(st.raster || {}).length);
+  $("p-scale").hidden = !cellScale();
+  if (st.built_at) {
+    $("updated").textContent = `Son güncelleme: ${new Date(st.built_at).toLocaleString("tr-TR")} · ` +
+      `Uydu verisi: ${MONTHS[st.latest.month - 1]} ${st.latest.year} sonuna kadar.`;
+  }
+  if (STATIC) {
+    $("sub-form").hidden = true;
+    $("sub-static").hidden = false;
+    $("check-alerts").hidden = true;
+    $("sub-title").hidden = true;
+    $("sub-list").hidden = true;
+    $("sub-intro").hidden = true;
+    const u = formUrl();
+    if (u) $("form-link").href = u;
+    else { $("form-link").hidden = true; $("form-missing").hidden = false; }
+  }
 
   state.year = state.status.latest.year;
   // Varsayılan olarak bölgenin büyüme mevsimi zirvesini göster (en anlamlı karşılaştırma)
@@ -460,7 +570,7 @@ async function init() {
   drawOutline();
   await loadMap();
   loadTimeseries();
-  if (state.status.mode === "demo") loadDroughtHistory(); else resetDroughtHistory();
+  if (!state.status.live) loadDroughtHistory(); else resetDroughtHistory();
   loadSubscriptions();
   loadAlerts();
 }

@@ -71,7 +71,7 @@ Leaflet ve Chart.js projenin içinde (`frontend/static/vendor/`) olduğundan sit
 4. Sayfanın sağ üstünde **"Google Earth Engine (Sentinel-2)"** yazısını görmelisiniz.
 
 İlk sorgular uydu verisi işlendiği için birkaç dakika sürebilir; sonuçlar `data/cache/` içinde saklanır.
-`DATA_MODE=gee` verirseniz GEE bağlanamadığında demo yerine hata verir; `DATA_MODE=demo` her zaman demo kullanır.
+Veri kaynağı sırası: `data/store`'da kayıtlı gerçek veri → canlı Earth Engine → demo. `DATA_MODE=store`, `DATA_MODE=gee` veya `DATA_MODE=demo` ile biri zorlanabilir (`gee` modunda tıklanan nokta için tek tarla ölçeğinde canlı analiz yapılır).
 
 ### E-posta uyarıları
 
@@ -96,20 +96,80 @@ python -m scripts.export_qgis konya 2025 5 --geotiff   # Google Drive'a NDVI+VCI
 
 QGIS'te *Katman → Katman Ekle → Vektör Katman* ile GeoJSON'u açıp `vci` alanına göre *Kademeli* semboloji uygulayın.
 
+## 7/24 yayın (GitHub Pages + otomatik aylık güncelleme)
+
+Site sunucusuz çalışır: GitHub her ayın 5'inde Earth Engine'den yeni ayın uydu verisini çeker
+(`scripts/update_data.py`), repoya kaydeder (`data/store/`), çiftçi uyarılarını gönderir ve bütün
+haritaları önceden hesaplayıp GitHub Pages'te yayınlar (`scripts/build_site.py`). Ziyaretçiler
+Earth Engine kotası harcamaz; site hiç uyumaz ve ücretsizdir.
+
+**Bir kez yapılacak kurulum**
+
+1. **Earth Engine projesi:** <https://code.earthengine.google.com/register> → ticari olmayan kullanım →
+   yeni Cloud projesi (ör. `kuraklik-gozu-2204`). Bazı Google servisleri 18 yaş istediği için hesabı
+   danışman öğretmen veya veli açabilir.
+2. **Servis hesabı ve anahtar:** Google Cloud Console → *IAM ve Yönetici → Hizmet hesapları → Hizmet hesabı oluştur*.
+   Rolleri: **Earth Engine Resource Viewer** ve **Service Usage Consumer**. Sonra hesabın
+   *Anahtarlar → Anahtar ekle → JSON* ile anahtar dosyasını indirin. Bu dosya bir şifredir: kimseyle paylaşmayın,
+   repoya koymayın.
+3. **GitHub sırrı:** repo → *Settings → Secrets and variables → Actions → New repository secret*:
+   ad `GEE_KEY_JSON`, değer olarak JSON dosyasının **tüm içeriği**.
+4. **Pages:** repo → *Settings → Pages → Build and deployment → Source: GitHub Actions*.
+   Ücretsiz GitHub hesabında Pages yalnızca **herkese açık (public)** repolarda çalışır
+   (öğrenciler GitHub Student Developer Pack ile özel repoda da kullanabilir).
+5. **Kodu `main` dalına alın** (pull request'i birleştirin). Otomatik çalışma sadece `main` dalında olur.
+6. **İlk veri çekimi:** repo → *Actions → "Uydu verisini güncelle ve siteyi yayınla" → Run workflow*.
+   2017'den bugüne ~117 ay × 3 bölge çekilir; bir çalıştırma en fazla 5 saat sürer. Bitmezse site
+   "Geçmiş uydu verisi yükleniyor: X/Y ay" uyarısı gösterir; workflow'u tekrar çalıştırın, kaldığı yerden devam eder.
+
+Site adresi: `https://<kullanıcı-adı>.github.io/tubitak-proje/`. `GEE_KEY_JSON` yoksa site demo
+(yapay) veriyle yayınlanır ve bunu açıkça yazar.
+
+Repoya kaydedilen `data/store/` sayesinde siteyi kendi bilgisayarınızda (`python -m backend.app`)
+çalıştırdığınızda da Earth Engine hesabı olmadan gerçek veri görünür.
+
+**Çiftçi uyarıları (isteğe bağlı)**
+
+Statik sitede sunucu olmadığı için abonelikleri bir Google Formu toplar:
+
+1. Google Formu oluşturun. Sorular: *Ad Soyad*, *E-posta*, *Tarla adı*, *Enlem*, *Boylam*, *Uyarı eşiği*
+   (20/35/50) ve *KVKK onayı* ("Bilgilerimin yalnızca kuraklık uyarısı göndermek için kullanılmasına onay veriyorum").
+2. Formun *Yanıtlar → E-Tablolar'a bağla* ile yanıt tablosu oluşturun. Tabloyu servis hesabının e-posta
+   adresiyle (JSON'daki `client_email`) **Görüntüleyen** olarak paylaşın. Tabloyu herkese açık yapmayın.
+   Cloud Console'da **Google Sheets API**'yi etkinleştirin.
+3. Formda *⋮ → Önceden doldurulmuş bağlantı al* → Enlem'e `ENLEM`, Boylam'a `BOYLAM` yazıp bağlantıyı kopyalayın.
+   GitHub'da *Settings → Secrets and variables → Actions → Variables* → `ABONE_FORM_URL` = bu bağlantı.
+   Sitedeki "Bu tarla için uyarı al" düğmesi formu tıklanan konumla doldurarak açar.
+4. Sırlar: `ABONE_SHEET_ID` (tablo adresindeki `/d/` ile `/edit` arasındaki kimlik), e-posta için
+   `SMTP_HOST` (ör. `smtp.gmail.com`), `SMTP_USER`, `SMTP_PASSWORD` (Gmail'de "uygulama şifresi").
+
+Her ay eşiğin altına düşen abonelere e-posta gider (aynı dönem için bir kez). Sitedeki uyarı listesinde isim ve
+e-posta görünmez; repoda kime gönderildiği yalnızca tek yönlü özet (hash) olarak tutulur.
+
 ## Proje yapısı
 
 ```
 backend/
-  app.py           Flask sunucusu ve REST API
-  config.py        Bölgeler, eşikler, ortam değişkenleri
-  gee_source.py    Google Earth Engine: Sentinel-2, bulut maskesi, NDVI, VCI, harita karoları
-  demo_source.py   GEE yokken yapay veri üretici
-  analysis.py      NDVI, VCI, sınıflandırma, eğilim, fenoloji, öneriler
-  service.py       Veri kaynağı seçimi ve analiz katmanı
-  alerts.py        Abonelik + uyarı (SQLite, e-posta)
-frontend/          index.html, static/app.js, static/style.css (Leaflet + Chart.js)
-scripts/           check_alerts.py (cron), export_qgis.py
-tests/             pytest testleri  →  python -m pytest
+  app.py            Flask sunucusu ve REST API (yerel kullanım)
+  config.py         Bölgeler, eşikler, ortam değişkenleri
+  gee_source.py     Google Earth Engine: Sentinel-2, bulut maskesi, NDVI, VCI, ızgara ve görüntü sorguları
+  store.py          Uydu verisi deposu (data/store/*.json – aylık ızgara NDVI değerleri)
+  store_source.py   Depodan çalışan veri kaynağı (hızlı, internetsiz)
+  demo_source.py    GEE yokken yapay veri üretici
+  analysis.py       NDVI, VCI, sınıflandırma, eğilim, fenoloji, öneriler
+  service.py        Veri kaynağı seçimi ve analiz katmanı
+  alerts.py         Abonelik + uyarı (yerelde SQLite, e-posta)
+  sheets.py         Google Formu yanıt tablosundan abonelik okuma
+  places.py         Havzalardaki il/ilçe merkezleri
+frontend/           index.html, static/app.js, static/style.css (Leaflet + Chart.js)
+scripts/
+  update_data.py    GEE'den eksik ayları çekip data/store'a yazar (aylık)
+  send_alerts.py    Form abonelerine kuraklık e-postası (aylık)
+  build_site.py     Statik siteyi _site/ klasörüne üretir (GitHub Pages)
+  check_alerts.py   Yerel sunucu için uyarı kontrolü (cron)
+  export_qgis.py    QGIS için GeoJSON / GeoTIFF
+.github/workflows/site.yml   Her ayın 5'inde: veri güncelle → uyarı gönder → siteyi yayınla
+tests/              pytest testleri  →  python -m pytest
 ```
 
 ### API

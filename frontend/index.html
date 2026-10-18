@@ -6,8 +6,8 @@
   <title>KuraklıkGözü – Uydu ile Tarımsal Kuraklık İzleme</title>
   <meta name="description" content="Sentinel-2 uydu verisi ve NDVI ile Türkiye tarım havzalarında kuraklık izleme ve çiftçi uyarı sistemi.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛰️</text></svg>">
-  <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="static/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="static/style.css">
 </head>
 <body>
 <header class="topbar">
@@ -31,6 +31,7 @@
   <strong>Demo modu:</strong> Google Earth Engine hesabı bağlı olmadığı için harita, gerçek uydu ölçümü yerine
   Sentinel-2 davranışını taklit eden <em>yapay veri</em> gösteriyor. Gerçek veri için README'deki GEE kurulumunu yapın.
 </div>
+<div id="coverage-banner" class="banner" hidden></div>
 
 <main>
   <!-- ============ KONTROLLER + HARİTA ============ -->
@@ -77,6 +78,8 @@
       <h2>📍 Tarla analizi <small id="p-place"></small> <small id="p-coord"></small></h2>
       <button id="p-subscribe" class="primary">Bu tarla için uyarı al</button>
     </div>
+    <p class="sub" id="p-scale" hidden>Değerler, tıkladığınız noktayı içeren yaklaşık 10 km × 10 km'lik karedeki
+      tarım alanlarının ortalamasıdır (haritada seçili kare).</p>
     <div class="point-grid">
       <div>
         <div class="status-card" id="p-status"></div>
@@ -115,8 +118,16 @@
   <section id="uyari" class="alerts">
     <div class="panel">
       <h2>🔔 Çiftçi uyarı aboneliği</h2>
-      <p class="sub">Tarlanızın konumunu haritadan seçin. Uydu verisi her ay kontrol edilir; tarlanızda kuraklık
+      <p class="sub" id="sub-intro">Tarlanızın konumunu haritadan seçin. Uydu verisi her ay kontrol edilir; tarlanızda kuraklık
         eşiği aşılırsa size e-posta ile (ve bu sayfada) uyarı gönderilir.</p>
+      <div id="sub-static" hidden>
+        <p>Haritada tarlanıza tıklayıp <b>"Bu tarla için uyarı al"</b> düğmesine basın; konumunuz doldurulmuş
+          abonelik formu açılır. Uydu verisi her ayın başında güncellenir; tarlanızın bulunduğu bölgede kuraklık
+          eşiği aşılırsa e-posta alırsınız.</p>
+        <a id="form-link" class="primary button" target="_blank" rel="noopener">Abonelik formunu aç</a>
+        <p id="form-missing" class="msg err" hidden>Abonelik formu henüz ayarlanmadı (README → "Çiftçi uyarıları").</p>
+        <p class="hint">Kişisel bilgileriniz sitede yayımlanmaz; yalnızca uyarı göndermek için kullanılır.</p>
+      </div>
       <form id="sub-form">
         <label>Ad Soyad <input name="name" required maxlength="80"></label>
         <label>E-posta <input name="email" type="email" maxlength="120" placeholder="isteğe bağlı"></label>
@@ -143,7 +154,7 @@
         <button id="check-alerts" class="secondary">Uyarıları şimdi kontrol et</button>
       </div>
       <ul id="alert-list" class="alert-list"></ul>
-      <h3>Abone tarlalar</h3>
+      <h3 id="sub-title">Abone tarlalar</h3>
       <ul id="sub-list" class="sub-list"></ul>
     </div>
   </section>
@@ -179,10 +190,11 @@
   <p>Veri: Copernicus Sentinel-2 (ESA), ESA WorldCover 2021, Google Earth Engine · Altlık harita: Esri, OpenStreetMap.
     TÜBİTAK 2204 Lise Öğrencileri Araştırma Projesi – Yazılım / İklim Değişikliği.</p>
   <p class="hint">Öneriler bilgilendirme amaçlıdır; ziraat mühendisi veya İl Tarım Müdürlüğü tavsiyesinin yerini tutmaz.</p>
+  <p class="hint" id="updated"></p>
 </footer>
 
-<script src="/static/vendor/leaflet/leaflet.js"></script>
-<script src="/static/vendor/chart.umd.js"></script>
-<script src="/static/app.js"></script>
+<script src="static/vendor/leaflet/leaflet.js"></script>
+<script src="static/vendor/chart.umd.js"></script>
+<script src="static/app.js"></script>
 </body>
 </html>

@@ -13,10 +13,32 @@ _source = None
 _source_error = None
 
 
+def _store_source():
+    """data/store içinde tüm bölgeler için gerçek uydu verisi varsa onu kullanır."""
+    from . import store
+    from .store_source import StoreSource
+
+    stores = store.load_all()
+    if set(stores) == set(REGIONS) and all(st["source"] == "gee" for st in stores.values()):
+        return StoreSource(stores)
+    return None
+
+
 def source():
+    """Veri kaynağı seçimi (DATA_MODE):
+    auto  → kayıtlı gerçek veri (data/store) → canlı GEE → demo
+    store → yalnızca kayıtlı veri,  gee → yalnızca canlı GEE,  demo → yapay veri
+    """
     global _source, _source_error
     if _source is None:
-        if DATA_MODE != "demo":
+        if DATA_MODE in ("auto", "store"):
+            try:
+                _source = _store_source()
+            except ValueError as exc:
+                log.warning("Kayıtlı veri kullanılamadı: %s", exc)
+            if _source is None and DATA_MODE == "store":
+                raise RuntimeError("data/store içinde kullanılabilir gerçek veri yok")
+        if _source is None and DATA_MODE in ("auto", "gee"):
             try:
                 from .gee_source import GEESource
                 _source = GEESource()
@@ -31,11 +53,19 @@ def source():
     return _source
 
 
+def set_source(src) -> None:
+    global _source
+    _source = src
+
+
 def status() -> dict:
     src = source()
     y, m = src.latest()
-    return {"mode": src.mode, "label": src.label, "latest": {"year": y, "month": m},
-            "gee_error": _source_error}
+    out = {"mode": src.mode, "label": src.label, "latest": {"year": y, "month": m},
+           "point_scale": src.point_scale, "live": src.live, "gee_error": _source_error}
+    if hasattr(src, "coverage"):
+        out["coverage"] = src.coverage()
+    return out
 
 
 def regions() -> list[dict]:

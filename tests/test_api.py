@@ -7,10 +7,14 @@ os.environ["DATA_MODE"] = "demo"
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
-    from backend import config
+    from backend import config, service
+    from backend.demo_source import DemoSource
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "test.db")
+    # Repoda gerçek veri (data/store) olsa bile testler yapay veriyle çalışsın
+    service.set_source(DemoSource())
     from backend.app import app
-    return app.test_client()
+    yield app.test_client()
+    service.set_source(None)
 
 
 def test_status_and_regions(client):

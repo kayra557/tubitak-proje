@@ -43,14 +43,19 @@ def _disk_cache(key: str, producer):
 class GEESource:
     mode = "gee"
     label = "Google Earth Engine (Sentinel-2)"
+    point_scale = "field"
+    live = True
 
     def __init__(self):
         import ee  # sadece GEE modunda gerekli
 
         self.ee = ee
-        if GEE_SERVICE_ACCOUNT and GEE_KEY_FILE:
-            creds = ee.ServiceAccountCredentials(GEE_SERVICE_ACCOUNT, GEE_KEY_FILE)
-            ee.Initialize(creds, project=GEE_PROJECT)
+        if GEE_KEY_FILE:
+            # Servis hesabı anahtarı (JSON): e-posta ve proje kimliği dosyadan okunabilir
+            key = json.loads(open(GEE_KEY_FILE, encoding="utf-8").read())
+            account = GEE_SERVICE_ACCOUNT or key["client_email"]
+            creds = ee.ServiceAccountCredentials(account, GEE_KEY_FILE)
+            ee.Initialize(creds, project=GEE_PROJECT or key.get("project_id"))
         else:
             ee.Initialize(project=GEE_PROJECT)
         self.cropland = ee.ImageCollection("ESA/WorldCover/v200").first().select("Map").eq(40)
@@ -171,6 +176,48 @@ class GEESource:
         # ~3 hektarlık bir tarla büyüklüğü
         geom = self.ee.Geometry.Point([lon, lat]).buffer(100)
         return _disk_cache(key, lambda: self._series(geom, 10))
+
+    # ---- Depo (data/store) için toplu sorgular ---------------------------------------
+
+    def _cells_fc(self, cells):
+        ee = self.ee
+        return ee.FeatureCollection([ee.Feature(ee.Geometry.Rectangle(c["bbox"]), {"id": c["id"]}) for c in cells])
+
+    def _reduce_cells(self, img, cells, name, scale):
+        stats = img.reduceRegions(collection=self._cells_fc(cells),
+                                  reducer=self.ee.Reducer.mean().setOutputs([name]),
+                                  scale=scale, tileScale=4)
+        rows = stats.select(["id", name], None, False).getInfo()["features"]
+        by_id = {r["properties"]["id"]: r["properties"].get(name) for r in rows}
+        return [_r(by_id.get(c["id"]), 4) for c in cells]
+
+    def crop_fractions(self, region_id, cells):
+        """Her hücrede tarım alanı (ESA WorldCover sınıf 40) oranı."""
+        return self._reduce_cells(self.cropland.toFloat(), cells, "crop", 100)
+
+    def grid_month(self, region_id, year, month, cells):
+        """Bir ayın medyan NDVI kompozitinin her hücredeki ortalaması (sadece tarım pikselleri)."""
+        geom = self._region_geom(region_id)
+        img = self._monthly(geom, self.ee.Date.fromYMD(year, month, 1))
+        return self._reduce_cells(img, cells, "NDVI", 200)
+
+    def raster_thumbs(self, region_id, year, month, size=1400):
+        """Son ayın NDVI ve VCI görüntülerini PNG olarak indirir (statik site için)."""
+        import urllib.request
+
+        geom = self._region_geom(region_id)
+        cur, vci = self._vci(geom, year, month)
+        base = {"region": geom, "dimensions": size, "format": "png", "crs": "EPSG:3857"}
+        out = {}
+        for name, img, vis in (("ndvi", cur, {"min": 0, "max": 0.8, "palette": NDVI_PALETTE}),
+                               ("vci", vci, {"min": 0, "max": 100, "palette": VCI_PALETTE})):
+            url = img.clip(geom).getThumbURL({**base, **vis})
+            with urllib.request.urlopen(url, timeout=600) as resp:
+                out[name] = resp.read()
+        lons = [p[0] for p in REGIONS[region_id]["polygon"]]
+        lats = [p[1] for p in REGIONS[region_id]["polygon"]]
+        out["bounds"] = [[min(lats), min(lons)], [max(lats), max(lons)]]
+        return out
 
     def export_geotiff(self, region_id: str, year: int, month: int, folder="TUBITAK_Kuraklik"):
         """NDVI + VCI rasterını QGIS'te açmak üzere Google Drive'a GeoTIFF olarak gönderir."""

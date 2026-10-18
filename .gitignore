@@ -7,3 +7,5 @@ data/*.db
 *.json.key
 gee-key*.json
 .env
+_site/
+data/store/*.tmp
