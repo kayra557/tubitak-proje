@@ -33,8 +33,10 @@ bitki örtüsünü (NDVI) izleyen, kuruyan alanları haritada işaretleyen ve ab
 
 - 3 havza (Konya, Gediz, Büyük Menderes) için ~10 km'lik ızgarada kuraklık haritası (VCI / NDVI / geçen yıla göre değişim)
 - GEE modunda 10 m çözünürlüklü gerçek NDVI/VCI raster katmanı
-- **"Yılları oynat"**: aynı ayın 2017'den bugüne kuraklık haritasını animasyonla gösterir
-- Grafikler: aylık NDVI serisi, yıldan yıla büyüme mevsimi + eğilim çizgisi, yıllara göre kurak alan oranı, bu yıl vs. ortalama yıl
+- Açılışta tek cevap: seçili ayda havzadaki tarım alanının yüzde kaçının kurak olduğu, geçmiş yıllar arasındaki sırası ve geçen yılla farkı
+- **Yıl şeridi**: seçili ay için her yılın kurak alan payı; bir yıla tıklayınca haritada o yıl açılır, **"Yılları oynat"** hepsini sırayla gösterir
+- **En kurak yerleşim çevreleri**: kareler en yakın il/ilçe merkezine göre gruplanır, kurak payı en yüksek beş yer listelenir
+- Grafikler: aylık NDVI serisi (bu yıl yeşille), yıldan yıla büyüme mevsimi + eğilim çizgisi, bu yıl vs. ortalama yıl
 - **Tarla analizi**: haritada herhangi bir noktaya tıklayın → 2017'den bugüne NDVI geçmişi, güncel durum ve öneriler
 - **Çiftçi uyarı sistemi**: konum + eşik ile abonelik, aylık otomatik kontrol, e-posta bildirimi (aynı dönem için tekrar göndermez)
 - **QGIS için dışa aktarma**: GeoJSON (sitedeki "QGIS için indir" düğmesi) veya 30 m GeoTIFF (`scripts/export_qgis.py`)
@@ -51,7 +53,7 @@ Google Earth Engine bağlı değilse site otomatik olarak **demo moduna** geçer
 **yapay** veri gösterir ve sayfanın üstünde bunu açıkça belirtir. Sunum öncesi arayüzü denemek için kullanışlıdır,
 ama **projede sonuç olarak demo verisini kullanmayın** — gerçek analiz için aşağıdaki GEE kurulumunu yapın.
 
-Leaflet ve Chart.js projenin içinde (`frontend/static/vendor/`) olduğundan site, altlık harita hariç internetsiz de açılır.
+Leaflet, Chart.js ve Overpass yazı tipi projenin içinde (`frontend/static/vendor/`) olduğundan site, altlık harita hariç internetsiz de açılır.
 
 ### Google Earth Engine'i bağlama (gerçek uydu verisi)
 
@@ -196,4 +198,4 @@ tests/              pytest testleri  →  python -m pytest
 ## Veri kaynakları ve lisanslar
 
 Copernicus Sentinel-2 (ESA) · ESA WorldCover 10 m 2021 (CC BY 4.0) · Google Earth Engine ·
-Leaflet (BSD-2) · Chart.js (MIT) · Altlık: Esri World Imagery, OpenStreetMap.
+Leaflet (BSD-2) · Chart.js (MIT) · Overpass yazı tipi (SIL OFL 1.1) · Altlık: Esri World Imagery, OpenStreetMap.
