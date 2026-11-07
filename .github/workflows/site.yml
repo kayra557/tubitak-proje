@@ -4,7 +4,8 @@ name: Uydu verisini güncelle ve siteyi yayınla
 
 on:
   schedule:
-    - cron: "23 5 5 * *"   # her ayın 5'i, 05:23 UTC (08:23 Türkiye saati)
+    - cron: "23 5 5 * *"   # her ayın 5'i, 05:23 UTC (08:23 TSİ): uydu verisini güncelle
+    - cron: "41 6 * * *"   # her gün 06:41 UTC: yeni abonelere hoş geldin e-postası, uyarı kontrolü
   workflow_dispatch:
     inputs:
       max_minutes:
@@ -57,13 +58,16 @@ jobs:
 
       - name: Uydu verisini güncelle (Earth Engine)
         id: update
-        if: env.GEE_KEY_JSON != '' && github.event_name != 'push' && inputs.skip_update != true
+        # Günlük çalışmada uydu verisi çekilmez; sadece aylık çalışmada ve elle başlatınca
+        if: >-
+          env.GEE_KEY_JSON != '' && inputs.skip_update != true &&
+          (github.event_name == 'workflow_dispatch' || github.event.schedule == '23 5 5 * *')
         continue-on-error: true
         run: python -m scripts.update_data --max-minutes "${{ inputs.max_minutes || '300' }}"
 
       - name: Çiftçi uyarılarını gönder
         id: alerts
-        if: env.GEE_KEY_JSON != '' && github.event_name != 'push' && inputs.skip_update != true
+        if: env.GEE_KEY_JSON != '' && github.event_name != 'push'
         continue-on-error: true
         run: python -m scripts.send_alerts
 

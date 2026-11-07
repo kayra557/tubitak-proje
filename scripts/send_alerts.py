@@ -31,18 +31,27 @@ def _key(sub: dict) -> str:
 def load_state() -> dict:
     if STATE.exists():
         return json.loads(STATE.read_text(encoding="utf-8"))
-    return {"sent": {}, "public": []}
+    return {"sent": {}, "public": [], "welcomed": []}
 
 
 def process(subs: list[dict], state: dict, send=alerts.send_email) -> list[dict]:
-    """Eşik altındaki her abone için (dönem başına bir kez) uyarı gönderir; yeni uyarıları döner."""
+    """Yeni abonelere hoş geldin e-postası; büyüme mevsiminde eşik altına düşenlere (dönem başına
+    bir kez) kuraklık uyarısı gönderir. Yeni uyarıları döner."""
     new = []
+    welcomed = state.setdefault("welcomed", [])
     for sub in subs:
         report = service.point_report(sub["lat"], sub["lon"])
         cur = report.get("current")
-        if not alerts.needs_alert(sub, cur):
-            continue
         k = _key(sub)
+        if k not in welcomed:
+            subject, message = alerts.welcome_message(sub, report)
+            try:
+                send(sub.get("email"), subject, message)
+                welcomed.append(k)
+            except Exception as exc:
+                log.warning("Hoş geldin e-postası gönderilemedi (sonra tekrar denenecek): %s", exc)
+        if not alerts.needs_alert(sub, cur, report):
+            continue
         if state["sent"].get(k) == cur["t"]:
             continue  # bu dönem için zaten gönderildi
         subject, message = alerts.alert_message(sub, cur, report)

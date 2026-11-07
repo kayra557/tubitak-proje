@@ -38,7 +38,9 @@ def test_timeseries_and_point(client):
     assert client.get("/api/point?lat=60&lon=10").status_code == 400
 
 
-def test_subscription_and_alert_flow(client):
+def test_subscription_and_alert_flow(client, monkeypatch):
+    from backend import analysis
+    monkeypatch.setattr(analysis, "in_season", lambda m, p: True)
     r = client.post("/api/subscriptions", json={"name": "Test Çiftçi", "email": "t@example.com",
                                                 "lat": 37.6, "lon": 32.8, "threshold": 80})
     assert r.status_code == 201
