@@ -1,0 +1,114 @@
+# Her ay Sentinel-2 verisini Google Earth Engine'den çeker, çiftçi uyarılarını gönderir
+# ve siteyi GitHub Pages'te yayınlar. Kurulum: README → "7/24 yayın".
+name: Uydu verisini güncelle ve siteyi yayınla
+
+on:
+  schedule:
+    - cron: "23 5 5 * *"   # her ayın 5'i, 05:23 UTC (08:23 Türkiye saati)
+  workflow_dispatch:
+    inputs:
+      max_minutes:
+        description: "Uydu verisi en fazla kaç dakika çekilsin (ilk kurulumda 300; bitmezse tekrar çalıştırın)"
+        default: "300"
+      skip_update:
+        description: "Uydu verisi çekmeden sadece siteyi yeniden üret"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths: ["frontend/**", "backend/**", "scripts/**", "data/store/**", ".github/workflows/site.yml"]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: site
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      GEE_KEY_JSON: ${{ secrets.GEE_KEY_JSON }}
+      ABONE_SHEET_ID: ${{ secrets.ABONE_SHEET_ID }}
+      ABONE_FORM_URL: ${{ vars.ABONE_FORM_URL }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT || '587' }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Earth Engine anahtarını hazırla
+        if: env.GEE_KEY_JSON != ''
+        run: |
+          printf '%s' "$GEE_KEY_JSON" > "$RUNNER_TEMP/gee-key.json"
+          echo "GEE_KEY_FILE=$RUNNER_TEMP/gee-key.json" >> "$GITHUB_ENV"
+
+      - name: Uydu verisini güncelle (Earth Engine)
+        id: update
+        if: env.GEE_KEY_JSON != '' && github.event_name != 'push' && inputs.skip_update != true
+        continue-on-error: true
+        run: python -m scripts.update_data --max-minutes "${{ inputs.max_minutes || '300' }}"
+
+      - name: Çiftçi uyarılarını gönder
+        id: alerts
+        if: env.GEE_KEY_JSON != '' && github.event_name != 'push' && inputs.skip_update != true
+        continue-on-error: true
+        run: python -m scripts.send_alerts
+
+      - name: Yeni veriyi repoya kaydet
+        if: github.event_name != 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/store
+          if git diff --cached --quiet; then
+            echo "Kaydedilecek yeni veri yok."
+          else
+            git commit -m "Uydu verisi güncellendi ($(date -u +%Y-%m-%d))"
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
+      - name: Siteyi üret
+        run: python -m scripts.build_site --out _site
+
+      - name: Özet
+        if: always()
+        run: |
+          {
+            echo "## Çalıştırma özeti"
+            if [ -z "$GEE_KEY_JSON" ]; then
+              echo "- ⚠️ GEE_KEY_JSON sırrı yok: site **demo (yapay) veriyle** yayınlandı."
+            fi
+            echo "- Uydu verisi güncelleme: ${{ steps.update.outcome || 'atlandı' }}"
+            echo "- Çiftçi uyarıları: ${{ steps.alerts.outcome || 'atlandı' }}"
+            if [ "${{ steps.update.outcome }}" = "failure" ] || [ "${{ steps.alerts.outcome }}" = "failure" ]; then
+              echo "- ❌ Bir adım hata verdi; ayrıntı için o adımın kayıtlarını açın."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
