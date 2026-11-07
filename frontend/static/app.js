@@ -210,6 +210,7 @@ function renderStats() {
 async function loadMap() {
   $("map-loading").hidden = false;
   try {
+    updateSeasonNote();
     state.mapData = await api(URLS.map(state.region, state.year, state.month));
     drawGrid();
     drawRaster();
@@ -236,9 +237,46 @@ function setChart(id, config) {
   charts[id] = new Chart($(id), config);
 }
 
+// Bölgenin zaman serisi (bir kez indirilir); en yeşil ay buradan, gerçek uydu verisinden hesaplanır
+async function getTimeseries(region) {
+  state.ts = state.ts || {};
+  if (!state.ts[region]) state.ts[region] = await api(URLS.timeseries(region));
+  return state.ts[region];
+}
+
+function peakMonth(region) {
+  const ts = (state.ts || {})[region];
+  return (ts && ts.phenology && ts.phenology.peak_month) || state.regions.find((r) => r.id === region).peak_month;
+}
+
+// Büyüme mevsimi: zirveden 2 ay önce – 1 ay sonra (ör. Konya: Mart–Haziran)
+function inSeason(region, month) {
+  const d = (month - peakMonth(region) + 12) % 12;
+  return d >= 10 || d <= 1;
+}
+
+// Bölgenin en yeşil ayını, verisi olan en son yıl için seçer
+function goToPeak(region) {
+  const pm = peakMonth(region), { year: ly, month: lm } = state.status.latest;
+  state.month = pm;
+  state.year = pm <= lm ? ly : ly - 1;
+  fillYearMonth();
+}
+
+function updateSeasonNote() {
+  const ok = inSeason(state.region, state.month);
+  $("season-note").hidden = ok;
+  if (ok) return;
+  const pm = peakMonth(state.region);
+  $("season-text").textContent = `⚠️ ${MONTHS[state.month - 1]}, ${regionObj().name} için büyüme mevsimi dışında ` +
+    "(hasat sonrası veya ekim öncesi). Tarlaların çoğu boş olduğundan bu ayın kuraklık sonucu güvenilir değildir. " +
+    `Bu havzada bitkiler en yeşil hâline ${MONTHS[pm - 1]} ayında ulaşıyor.`;
+  $("season-go").textContent = `${MONTHS[pm - 1]} ayına geç`;
+}
+
 async function loadTimeseries() {
   document.querySelectorAll(".region-name").forEach((el) => (el.textContent = regionObj().name));
-  const ts = await api(URLS.timeseries(state.region));
+  const ts = await getTimeseries(state.region);
 
   setChart("c-monthly", {
     type: "line",
@@ -492,6 +530,8 @@ function bindControls() {
     const r = regionObj();
     map.setView(r.center, r.zoom);
     drawOutline();
+    await getTimeseries(state.region).catch(() => {});
+    goToPeak(state.region);
     await loadMap();
     loadTimeseries();
     if (!state.status.live) loadDroughtHistory(); else resetDroughtHistory();
@@ -515,6 +555,11 @@ function bindControls() {
   $("raster").addEventListener("change", () => { drawGrid(); drawRaster(); });
   $("play").addEventListener("click", play);
   $("dh-load").addEventListener("click", loadDroughtHistory);
+  $("season-go").addEventListener("click", () => {
+    goToPeak(state.region);
+    loadMap();
+    if (!state.status.live) loadDroughtHistory(); else resetDroughtHistory();
+  });
 }
 
 function resetDroughtHistory() {
@@ -560,12 +605,11 @@ async function init() {
     else { $("form-link").hidden = true; $("form-missing").hidden = false; }
   }
 
-  state.year = state.status.latest.year;
-  // Varsayılan olarak bölgenin büyüme mevsimi zirvesini göster (en anlamlı karşılaştırma)
+  // Varsayılan: bölgenin en yeşil ayı (kuraklığın en anlamlı ölçüldüğü dönem)
   const r0 = state.regions.find((r) => r.id === state.region);
-  state.month = r0.peak_month <= state.status.latest.month ? r0.peak_month : state.status.latest.month;
   state.regions.forEach((r) => $("region").add(new Option(r.name, r.id)));
-  fillYearMonth();
+  await getTimeseries(state.region).catch(() => {});
+  goToPeak(state.region);
   map.setView(r0.center, r0.zoom);
   drawOutline();
   await loadMap();

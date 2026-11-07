@@ -182,3 +182,11 @@ footer { text-align: center; color: var(--muted); font-size: .8rem; padding: 1re
   .steps { grid-template-columns: 1fr; }
   .topbar nav { display: none; }
 }
+
+/* Büyüme mevsimi dışı uyarısı */
+.season-note {
+  background: #fff4d6; color: #4a3800; border: 1px solid #f0d68a; border-radius: 8px;
+  padding: .55rem .7rem; font-size: .82rem; display: grid; gap: .45rem;
+}
+.season-note p { margin: 0; }
+.season-note button { justify-self: start; background: #fff; color: #4a3800; border-color: #e0c06a; }
