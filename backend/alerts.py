@@ -7,7 +7,7 @@ import smtplib
 import sqlite3
 from email.message import EmailMessage
 
-from . import config, service
+from . import analysis, config, service
 
 log = logging.getLogger(__name__)
 
@@ -98,8 +98,40 @@ def send_email(to: str, subject: str, body: str) -> bool:
     return True
 
 
-def needs_alert(sub: dict, cur: dict | None) -> bool:
-    return bool(cur) and cur["vci"] is not None and cur["vci"] < sub["threshold"]
+def needs_alert(sub: dict, cur: dict | None, report: dict | None = None) -> bool:
+    """Eşik altındaysa ve ay o tarlanın büyüme mevsimindeyse uyarı gerekir."""
+    if not cur or cur["vci"] is None or cur["vci"] >= sub["threshold"]:
+        return False
+    pheno = (report or {}).get("phenology")
+    if pheno and pheno.get("peak_month"):
+        month = int(cur["t"][5:7])
+        if not analysis.in_season(month, pheno["peak_month"]):
+            return False  # hasat sonrası / ekim öncesi: VCI güvenilir değil
+    return True
+
+
+def welcome_message(sub: dict, report: dict) -> tuple[str, str]:
+    """Yeni aboneye gönderilen "aboneliğiniz alındı" e-postası (konu, metin)."""
+    field = sub.get("field_name") or f"{sub['lat']:.4f}, {sub['lon']:.4f}"
+    lines = [f"Merhaba {sub['name']},", "",
+             "KuraklıkGözü kuraklık uyarılarına aboneliğiniz alındı.",
+             f"Tarla: {field} (enlem {sub['lat']:.4f}, boylam {sub['lon']:.4f})"]
+    np = report.get("nearest_place")
+    if np:
+        lines.append(f"En yakın yerleşim: {np['name']} ({np['province']}), yaklaşık {np['distance_km']:.0f} km")
+    cur, pheno = report.get("current"), report.get("phenology")
+    if not cur:
+        lines += ["", "Not: Bu konum şu an izlediğimiz tarım havzalarının (Konya, Gediz, Büyük Menderes) "
+                      "dışında kalıyor; bu yüzden uyarı gönderemeyebiliriz."]
+    else:
+        if pheno and pheno.get("peak_month"):
+            lines += ["", f"Bu bölgede bitkiler en yeşil hâline {analysis.MONTHS_TR[pheno['peak_month'] - 1]} ayında "
+                          f"ulaşıyor. Büyüme mevsiminde ({analysis.season_label(pheno['peak_month'])}) uydu verisine göre "
+                          f"kuraklık indeksi (VCI) seçtiğiniz eşiğin ({sub['threshold']:.0f}) altına düşerse "
+                          "size e-posta göndereceğiz."]
+        lines.append(f"Son uydu ölçümü ({cur['t']}): {cur['class_label']} (VCI {cur['vci']:.0f}/100).")
+    lines += ["", "Aboneliği bitirmek için bu e-postayı yanıtlamanız yeterli.", "", "KuraklıkGözü"]
+    return "KuraklıkGözü – aboneliğiniz alındı", "\n".join(lines)
 
 
 def alert_message(sub: dict, cur: dict, report: dict) -> tuple[str, str]:
@@ -118,7 +150,7 @@ def check_all() -> dict:
         checked += 1
         report = service.point_report(sub["lat"], sub["lon"])
         cur = report.get("current")
-        if not needs_alert(sub, cur):
+        if not needs_alert(sub, cur, report):
             continue
         subject, message = alert_message(sub, cur, report)
         with _db() as con:

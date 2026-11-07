@@ -82,21 +82,47 @@ def test_parse_form_rows():
     assert subs[1]["email"] is None and subs[1]["threshold"] == 35.0
 
 
-def test_send_alerts_once_per_period(demo):
+def test_send_alerts_once_per_period(demo, monkeypatch):
+    from backend import analysis
     from scripts.send_alerts import process
 
+    monkeypatch.setattr(analysis, "in_season", lambda m, p: True)  # mevsim içiymiş gibi
     sub = {"name": "Test", "email": "t@example.com", "lat": 37.6, "lon": 32.8, "field_name": None, "threshold": 99}
     sent = []
     state = {"sent": {}, "public": []}
-    new = process([sub], state, send=lambda to, subj, body: sent.append(to) or True)
-    assert len(new) == 1 and sent == ["t@example.com"]
+    new = process([sub], state, send=lambda to, subj, body: sent.append(subj) or True)
+    assert len(new) == 1
+    assert sent[0].endswith("aboneliğiniz alındı") and sent[1].startswith("Kuraklık uyarısı")
     assert "t@example.com" not in json.dumps(state) and "Test" not in json.dumps(state["public"])
-    assert process([sub], state, send=lambda *a: True) == []  # aynı dönem: tekrar gönderilmez
+    sent.clear()
+    assert process([sub], state, send=lambda *a: sent.append(a) or True) == []  # aynı dönem: tekrar gönderilmez
+    assert sent == []  # hoş geldin de tekrar gitmez
 
     def boom(*a):
         raise OSError("smtp kapalı")
     state2 = {"sent": {}, "public": []}
-    assert process([sub], state2, send=boom) == [] and state2["sent"] == {}  # hata → sonra tekrar denenir
+    assert process([sub], state2, send=boom) == []
+    assert state2["sent"] == {} and state2["welcomed"] == []  # hata → sonra tekrar denenir
+
+
+def test_no_drought_alert_outside_growing_season(demo, monkeypatch):
+    from backend import analysis
+    from scripts.send_alerts import process
+
+    monkeypatch.setattr(analysis, "in_season", lambda m, p: False)  # hasat sonrası
+    sub = {"name": "Test", "email": "t@example.com", "lat": 37.6, "lon": 32.8, "field_name": "Ova", "threshold": 99}
+    bodies = []
+    state = {"sent": {}, "public": []}
+    assert process([sub], state, send=lambda to, subj, body: bodies.append(body) or True) == []
+    assert len(bodies) == 1 and "aboneliğiniz alındı" in bodies[0] and "Ova" in bodies[0]
+
+
+def test_in_season():
+    from backend.analysis import in_season, season_label
+
+    assert [m for m in range(1, 13) if in_season(m, 5)] == [3, 4, 5, 6]
+    assert [m for m in range(1, 13) if in_season(m, 1)] == [1, 2, 11, 12]
+    assert season_label(5) == "Mart–Haziran"
 
 
 def test_update_data_with_fake_gee(tmp_store, monkeypatch):

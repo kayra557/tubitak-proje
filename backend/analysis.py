@@ -163,6 +163,22 @@ def phenology(monthly_climatology: Sequence[float | None]) -> dict | None:
             "senescence_month": senes + 1, "amplitude": round(amp, 3)}
 
 
+def in_season(month: int, peak_month: int) -> bool:
+    """Büyüme mevsimi: zirve ayından 2 ay önce – 1 ay sonra (ör. zirve Mayıs → Mart–Haziran).
+
+    Bu dönem dışında (hasat sonrası, ekim öncesi) tarlalar çoğunlukla çıplaktır ve VCI
+    kuraklık hakkında güvenilir bilgi vermez.
+    """
+    d = (month - peak_month) % 12
+    return d >= 10 or d <= 1
+
+
+def season_label(peak_month: int) -> str:
+    first = MONTHS_TR[(peak_month - 3) % 12]
+    last = MONTHS_TR[peak_month % 12]
+    return f"{first}–{last}"
+
+
 def farmer_advice(vci_value: float | None, trend: dict | None, pheno: dict | None,
                   month: int) -> list[str]:
     """Kural tabanlı, bilgilendirme amaçlı öneriler (ziraat mühendisi tavsiyesinin yerini tutmaz)."""
