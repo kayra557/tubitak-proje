@@ -430,11 +430,21 @@ async function loadAlerts() {
 }
 
 // Google Formu bağlantısındaki ENLEM/BOYLAM yer tutucularını tıklanan noktayla doldurur
+// Önceden doldurulmuş bağlantıdan yalnızca ENLEM/BOYLAM alanları tutulur; bağlantı alınırken
+// başka kutulara yazılmış örnek değerler (ad, e-posta, KVKK onayı…) forma taşınmaz.
 function formUrl(lat, lon) {
-  const u = state.status.subscribe_form_url;
-  if (!u) return null;
-  return u.replace("ENLEM", lat === undefined ? "" : lat.toFixed(5))
-    .replace("BOYLAM", lon === undefined ? "" : lon.toFixed(5));
+  const raw = state.status.subscribe_form_url;
+  if (!raw) return null;
+  let u;
+  try { u = new URL(raw); } catch (e) { return null; }
+  const keep = new URLSearchParams();
+  for (const [k, v] of u.searchParams) {
+    if (v === "ENLEM") { if (lat !== undefined) keep.append(k, lat.toFixed(5)); }
+    else if (v === "BOYLAM") { if (lon !== undefined) keep.append(k, lon.toFixed(5)); }
+    else if (!k.startsWith("entry.")) keep.append(k, v);
+  }
+  u.search = keep.toString();
+  return u.toString();
 }
 
 function bindAlerts() {
