@@ -103,6 +103,9 @@ def test_send_alerts_once_per_period(demo, monkeypatch):
     state2 = {"sent": {}, "public": []}
     assert process([sub], state2, send=boom) == []
     assert state2["sent"] == {} and state2["welcomed"] == []  # hata → sonra tekrar denenir
+    state3 = {"sent": {}, "public": []}
+    process([sub], state3, send=lambda *a: False)  # SMTP ayarı yok
+    assert state3["welcomed"] == []
 
 
 def test_no_drought_alert_outside_growing_season(demo, monkeypatch):
