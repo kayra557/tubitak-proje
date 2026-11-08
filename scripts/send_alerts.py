@@ -46,8 +46,11 @@ def process(subs: list[dict], state: dict, send=alerts.send_email) -> list[dict]
         if k not in welcomed:
             subject, message = alerts.welcome_message(sub, report)
             try:
-                send(sub.get("email"), subject, message)
-                welcomed.append(k)
+                if send(sub.get("email"), subject, message):
+                    welcomed.append(k)
+                    log.info("Hoş geldin e-postası gönderildi (%s yakını).", places.nearest(sub["lat"], sub["lon"])["name"])
+                else:
+                    log.warning("Hoş geldin e-postası gönderilmedi: e-posta adresi veya SMTP ayarı eksik.")
             except Exception as exc:
                 log.warning("Hoş geldin e-postası gönderilemedi (sonra tekrar denenecek): %s", exc)
         if not alerts.needs_alert(sub, cur, report):
