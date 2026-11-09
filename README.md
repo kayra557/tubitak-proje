@@ -186,12 +186,22 @@ tests/              pytest testleri  →  python -m pytest
 | `GET/POST /api/subscriptions`, `DELETE /api/subscriptions/<id>` | Çiftçi abonelikleri |
 | `GET /api/alerts`, `POST /api/alerts/check` | Uyarılar / kontrolü tetikle |
 
-## Sınırlamalar ve geliştirme fikirleri
+## Sınırlamalar
 
 - Havza sınırları sadeleştirilmiş poligonlardır; resmî DSİ sınırlarını `data/regions/<id>.geojson` olarak eklerseniz otomatik kullanılır.
-- NDVI düşüşünün tek nedeni kuraklık değildir (hasat, nadas, ürün değişimi). VCI aynı ayı kıyasladığı için bu etkiyi azaltır ama tamamen yok etmez; sonuçları yağış verisiyle (ör. CHIRPS) doğrulamak güçlü bir ek olur.
-- Landsat 8/9 eklenerek eğilim analizi 2013'e kadar uzatılabilir; toprak nemi için Sentinel-1 radar verisi eklenebilir.
+- NDVI düşüşünün tek nedeni kuraklık değildir (hasat, nadas, ürün değişimi). VCI aynı ayı kıyasladığı için bu etkiyi azaltır ama tamamen yok etmez.
+- Statik sitede tıklanan noktanın analizi, o noktayı içeren ~10 km'lik karenin tarım alanı ortalamasıdır (tek tarla değil).
+- Hasat sonrası ve ekim öncesi aylarda tarlalar çıplak olduğundan VCI güvenilir değildir; site bu aylarda uyarı gösterir, çiftçi uyarıları yalnızca büyüme mevsiminde gönderilir.
 - Öneriler kural tabanlı ve bilgilendirme amaçlıdır; ziraat mühendisi tavsiyesinin yerini tutmaz.
+
+## Gelecek çalışmalar (yarışma sonrası)
+
+1. **Yağış verisiyle doğrulama:** CHIRPS yağış verisini Earth Engine'den çekip kurak yıllarla (2021, 2022, 2025) karşılaştırmak.
+2. **Verim verisiyle doğrulama:** TÜİK il bazlı buğday verimi ile uydu kuraklık oranını karşılaştırmak.
+3. **Sulama hipotezi:** 2017–2026'da büyüme mevsimi NDVI'si kurak yıllar dışında azalmıyor; bunun yeraltı suyuyla sulamadan kaynaklanıp kaynaklanmadığını sulanan/sulanmayan alanları ayırarak test etmek.
+4. **Bulgular sayfası:** En kurak yıl, kurak alan oranı gibi özetleri sitede otomatik göstermek.
+5. **Sergi için QR kod** ve **yeni bölgeler** (Harran, Çukurova, Trakya, Sakarya Ovası).
+6. **Kendi alan adı** (ör. kuraklikgozu.com) ve daha uzun dönem için Landsat 8/9 (2013'ten itibaren), toprak nemi için Sentinel-1 radar verisi.
 
 ## Veri kaynakları ve lisanslar
 
